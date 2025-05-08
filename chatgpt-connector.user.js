@@ -324,7 +324,7 @@ Remember to provide ONLY the final, concise response formatted for display in a 
                 showStatus('Sending response back to server...');
                 await sendResponseToServer(response, requestId);
 
-                showStatus('Analysis complete! You can close this tab.');
+                showStatus('Analysis complete! This tab is about to close.');
 
                 // Close this tab automatically after a delay
                 setTimeout(() => window.close(), 3000);
