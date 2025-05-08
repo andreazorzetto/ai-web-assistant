@@ -82,7 +82,7 @@
         checkServerConnection();
     }
 
-    // Check if the server is available
+    // 1. Modify the checkServerConnection function to use a different message
     function checkServerConnection() {
         GM_xmlhttpRequest({
             method: 'GET',
@@ -91,7 +91,7 @@
                 if (response.status === 200) {
                     STATE.isServerAvailable = true;
                     STATE.connectionRetries = 0;
-                    updateStatusText('Ready');
+                    updateStatusText('Web Assistant'); // Changed from 'Ready'
                 } else {
                     handleConnectionError();
                 }
@@ -354,54 +354,47 @@
         }
     }
 
-    // Make an element draggable
+    // REPLACEMENT: Ultra-simple direct mouse following
     function makeDraggable(container, handle) {
-        let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+        let offsetX, offsetY;
 
         handle.style.cursor = 'move';
-        handle.onmousedown = dragMouseDown;
 
-        function dragMouseDown(e) {
+        handle.onmousedown = function(e) {
             // Don't drag when clicking minimize button
             if (e.target === uiElements.minimizeButton) {
                 return;
             }
 
-            e = e || window.event;
             e.preventDefault();
-            // Get the mouse cursor position at startup
-            pos3 = e.clientX;
-            pos4 = e.clientY;
-            document.onmouseup = closeDragElement;
-            // Call a function whenever the cursor moves
-            document.onmousemove = elementDrag;
-        }
 
-        function elementDrag(e) {
-            e = e || window.event;
-            e.preventDefault();
-            // Calculate the new cursor position
-            pos1 = pos3 - e.clientX;
-            pos2 = pos4 - e.clientY;
-            pos3 = e.clientX;
-            pos4 = e.clientY;
-            // Set the element's new position
-            container.style.top = (container.offsetTop - pos2) + "px";
-            container.style.left = (container.offsetLeft - pos1) + "px";
+            // Calculate the offset of the mouse cursor relative to the container
+            offsetX = e.clientX - container.getBoundingClientRect().left;
+            offsetY = e.clientY - container.getBoundingClientRect().top;
 
-            // Reset other positioning to allow manual positioning
-            container.style.bottom = 'auto';
+            // Add mouse move and mouse up handlers
+            document.onmousemove = moveAt;
+            document.onmouseup = stopDrag;
+
+            // Make sure this element is on top
+            container.style.zIndex = "10001";
+        };
+
+        function moveAt(e) {
+            // Direct positioning based on mouse position
+            container.style.left = (e.clientX - offsetX) + 'px';
+            container.style.top = (e.clientY - offsetY) + 'px';
             container.style.right = 'auto';
+            container.style.bottom = 'auto';
         }
 
-        function closeDragElement() {
-            // Stop moving when mouse button is released
-            document.onmouseup = null;
+        function stopDrag() {
             document.onmousemove = null;
+            document.onmouseup = null;
         }
     }
 
-    // Handle analyze button click
+    // REPLACEMENT #2: Corrected handleAnalyzeClick with proper loading indicators
     function handleAnalyzeClick(viewInChatGPT = false) {
         if (!STATE.isServerAvailable) {
             showResponse('Error: Server not available. Please check the connection.', true);
@@ -413,11 +406,51 @@
             return;
         }
 
-        // Get prompt (now always visible)
+        // Get prompt
         const prompt = uiElements.promptInput.value.trim();
 
+        // Update state
+        STATE.isProcessing = true;
+        updateStatusText('Extracting content...');
+
+        // Disable both buttons
+        uiElements.analyzeButton.disabled = true;
+        uiElements.chatgptButton.disabled = true;
+
+        // Store original text
+        const originalAnalyzeText = 'Analyze';
+        const originalChatGPTText = 'Open in ChatGPT';
+
+        // Set loading text only on the clicked button
+        if (viewInChatGPT) {
+            uiElements.chatgptButton.textContent = 'Loading...';
+        } else {
+            uiElements.analyzeButton.textContent = 'Loading...';
+        }
+
         // Extract and analyze content
-        analyzePageContent(prompt, viewInChatGPT);
+        try {
+            // Extract content
+            const content = extractPageContent();
+            const chunks = chunkContent(content);
+
+            // Generate a unique request ID
+            const requestId = Date.now().toString();
+            STATE.currentRequestId = requestId;
+
+            // Update status
+            const chunkText = chunks.length > 1 ? ` (${chunks.length} chunks)` : '';
+            updateStatusText(`Analyzing${chunkText}...`);
+
+            // Send first chunk to start the process
+            sendContentChunk(requestId, prompt, chunks, 0, viewInChatGPT, originalAnalyzeText, originalChatGPTText);
+        } catch (error) {
+            console.error('Error extracting content:', error);
+            updateStatusText('Extraction error', true);
+            showResponse(`Error: ${error.message}`, true);
+            STATE.isProcessing = false;
+            resetUI(originalAnalyzeText, originalChatGPTText);
+        }
     }
 
     // Update status text
@@ -572,19 +605,12 @@
         return chunks;
     }
 
-    // Analyze the page content with user prompt
+    // REPLACE THIS ENTIRE FUNCTION with a simpler version that just calls handleAnalyzeClick
     function analyzePageContent(prompt, viewInChatGPT) {
-        // Update state and UI
-        STATE.isProcessing = true;
-        updateStatusText('Extracting content...');
-        uiElements.analyzeButton.disabled = true;
-        uiElements.chatgptButton.disabled = true;
-
-        // Add processing indicators
-        const originalAnalyzeText = uiElements.analyzeButton.textContent;
-        const originalChatGPTText = uiElements.chatgptButton.textContent;
-        uiElements.analyzeButton.textContent = '⏳';
-        uiElements.chatgptButton.textContent = '⏳';
+        // This function is now just a wrapper that calls handleAnalyzeClick
+        // All the logic has been moved to handleAnalyzeClick and sendContentChunk
+        const originalAnalyzeText = 'Analyze';
+        const originalChatGPTText = 'Open in ChatGPT';
 
         try {
             // Extract content
@@ -599,28 +625,24 @@
             const chunkText = chunks.length > 1 ? ` (${chunks.length} chunks)` : '';
             updateStatusText(`Analyzing${chunkText}...`);
 
-            // Send first chunk to start the process
-            sendContentChunk(requestId, prompt, chunks, 0, viewInChatGPT);
+            // Send first chunk to start the process with the right parameters
+            sendContentChunk(requestId, prompt, chunks, 0, viewInChatGPT, originalAnalyzeText, originalChatGPTText);
 
         } catch (error) {
             console.error('Error extracting content:', error);
             updateStatusText('Extraction error', true);
             showResponse(`Error: ${error.message}`, true);
             STATE.isProcessing = false;
-            resetUI(originalAnalyzeText, originalChatGPTText);
+            resetUI('Analyze', 'Open in ChatGPT');
         }
     }
-
-    // Send a content chunk to the server
-    function sendContentChunk(requestId, prompt, chunks, chunkIndex, viewInChatGPT) {
-        const originalAnalyzeText = 'Analyze';
-        const originalChatGPTText = 'Open in ChatGPT';
-
+    // REPLACEMENT #3: Modified sendContentChunk to pass through the original button text
+    function sendContentChunk(requestId, prompt, chunks, chunkIndex, viewInChatGPT, originalAnalyzeText, originalChatGPTText) {
         if (chunkIndex >= chunks.length) {
             // All chunks sent
             if (!viewInChatGPT) {
                 // If not viewing in ChatGPT, start polling for results
-                pollForResults(requestId);
+                pollForResults(requestId, originalAnalyzeText, originalChatGPTText);
             } else {
                 // If viewing in ChatGPT, we're done here
                 updateStatusText('Opened in ChatGPT');
@@ -665,7 +687,7 @@
 
                     if (result.success) {
                         // Send next chunk
-                        sendContentChunk(requestId, prompt, chunks, chunkIndex + 1, viewInChatGPT);
+                        sendContentChunk(requestId, prompt, chunks, chunkIndex + 1, viewInChatGPT, originalAnalyzeText, originalChatGPTText);
                     } else {
                         console.error('Error sending chunk:', result.error);
                         updateStatusText('Server error', true);
@@ -690,13 +712,9 @@
             }
         });
     }
-
-    // Poll for results from the server
-    function pollForResults(requestId) {
-        const originalAnalyzeText = 'Analyze';
-        const originalChatGPTText = 'Open in ChatGPT';
-
-        updateStatusText('Waiting for ChatGPT...');
+    // 2. Modify the pollForResults function to avoid showing "Complete" status
+    function pollForResults(requestId, originalAnalyzeText, originalChatGPTText) {
+        updateStatusText('Processing...');
         showResponse('ChatGPT is analyzing the page content...');
 
         // Start polling with exponential backoff
@@ -738,7 +756,7 @@
                             if (result.success && result.response) {
                                 // Process is complete
                                 clearInterval(pollInterval);
-                                updateStatusText('Complete ✓');
+                                updateStatusText('Web Assistant'); // Changed from 'Complete ✓'
                                 showResponse(result.response);
                                 STATE.isProcessing = false;
                                 resetUI(originalAnalyzeText, originalChatGPTText);
