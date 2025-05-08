@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Web Page Assistant Server (Enhanced)
-Handles page content with chunking, optional prompts, and direct ChatGPT viewing
+Web Page Assistant Server with background ChatGPT loading
+Handles page content with chunking, optional prompts, and background tab option
 """
 
 import argparse
@@ -13,6 +13,8 @@ import time
 import webbrowser
 import urllib.parse
 import os
+import sys
+import subprocess
 from pathlib import Path
 
 from colorama import init, Fore, Style
@@ -50,7 +52,7 @@ class LocalServer:
 
             # Print server info with colors
             print(f"\n{Fore.GREEN}{'=' * 80}{Style.RESET_ALL}")
-            print(f"{Fore.CYAN}Web Page Assistant Server (Enhanced){Style.RESET_ALL}")
+            print(f"{Fore.CYAN}Web Page Assistant Server (Background mode){Style.RESET_ALL}")
             print(f"{Fore.GREEN}{'-' * 80}{Style.RESET_ALL}")
             print(f"{Fore.YELLOW}Server started at{Style.RESET_ALL} http://localhost:{self.port}")
             print(f"{Fore.YELLOW}Timeout:{Style.RESET_ALL} {self.timeout} seconds")
@@ -73,6 +75,58 @@ class LocalServer:
         finally:
             if self.server:
                 self.server.server_close()
+
+    def open_browser_in_background(self, url, view_in_chatgpt=False):
+        """Open a browser tab in the background if possible, foreground if view_in_chatgpt is True"""
+        try:
+            # If view_in_chatgpt is True, always open in foreground
+            if view_in_chatgpt:
+                print(f"{Fore.CYAN}Opening ChatGPT in foreground (view mode){Style.RESET_ALL}")
+                webbrowser.open(url)
+                return True
+
+            # Otherwise, try to open in background based on platform
+            platform = sys.platform
+
+            if platform == 'darwin':  # macOS
+                # Use 'open -g' to open in background
+                subprocess.Popen(['open', '-g', url])
+                print(f"{Fore.CYAN}Opened ChatGPT in background (macOS){Style.RESET_ALL}")
+                return True
+
+            elif platform == 'win32':  # Windows
+                # On Windows, we can try to use the start command with /b flag
+                try:
+                    # First try with just /b for background
+                    subprocess.Popen(['start', '/b', url], shell=True)
+                    print(f"{Fore.CYAN}Opened ChatGPT in background (Windows){Style.RESET_ALL}")
+                    return True
+                except:
+                    # If that fails, fall back to standard webbrowser
+                    webbrowser.open_new_tab(url)
+                    print(f"{Fore.YELLOW}Opened ChatGPT normally (Windows fallback){Style.RESET_ALL}")
+                    return True
+
+            elif platform.startswith('linux'):  # Linux
+                # For Linux, try xdg-open with output redirection
+                try:
+                    subprocess.Popen(['xdg-open', url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    print(f"{Fore.CYAN}Opened ChatGPT in background (Linux){Style.RESET_ALL}")
+                    return True
+                except:
+                    # Fall back to standard webbrowser
+                    webbrowser.open_new_tab(url)
+                    print(f"{Fore.YELLOW}Opened ChatGPT normally (Linux fallback){Style.RESET_ALL}")
+                    return True
+
+            # Default fallback for other platforms
+            webbrowser.open_new_tab(url)
+            print(f"{Fore.YELLOW}Opened ChatGPT normally (default method){Style.RESET_ALL}")
+            return True
+
+        except Exception as e:
+            print(f"{Fore.RED}Error opening browser: {e}{Style.RESET_ALL}")
+            return False
 
     def _create_handler(self):
         """Create and return the HTTP request handler class"""
@@ -341,6 +395,9 @@ class LocalServer:
                 try:
                     print(f"{Fore.CYAN}Processing request {request_id} with ChatGPT{Style.RESET_ALL}")
 
+                    # Get view_in_chatgpt flag
+                    view_in_chatgpt = server_instance.pending_requests[request_id].get('view_in_chatgpt', False)
+
                     # Mark this request as pending ChatGPT processing
                     server_instance.pending_requests[request_id]['status'] = 'pending_chatgpt'
 
@@ -349,11 +406,12 @@ class LocalServer:
                     with open(content_file, 'w', encoding='utf-8') as f:
                         json.dump(server_instance.pending_requests[request_id], f)
 
-                    # Open ChatGPT in the default browser
-                    print(f"{Fore.YELLOW}Opening ChatGPT for request {request_id}{Style.RESET_ALL}")
+                    # Open ChatGPT in foreground or background based on mode
                     print(
-                        f"{Fore.YELLOW}View in ChatGPT mode: {server_instance.pending_requests[request_id].get('view_in_chatgpt', False)}{Style.RESET_ALL}")
-                    webbrowser.open("https://chatgpt.com/")
+                        f"{Fore.YELLOW}Opening ChatGPT for request {request_id} (View mode: {view_in_chatgpt}){Style.RESET_ALL}")
+
+                    # Use the browser opening method that supports background opening
+                    server_instance.open_browser_in_background("https://chatgpt.com/", view_in_chatgpt)
 
                 except Exception as e:
                     print(f"{Fore.RED}Error opening ChatGPT: {e}{Style.RESET_ALL}")

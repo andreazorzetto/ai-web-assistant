@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Web Page Assistant (Enhanced)
+// @name         Web Page Assistant (Compact)
 // @namespace    http://tampermonkey.net/
-// @version      2.1
-// @description  Single status bar with optional prompts and ChatGPT viewing option
+// @version      2.2
+// @description  Compact UI with always-visible prompt
 // @author       You
 // @match        *://*/*
 // @exclude      *://localhost*
@@ -22,13 +22,13 @@
         statusEndpoint: '/status',
         resultsEndpoint: '/results',
         // Content extraction settings
-        extractHTML: true,       // Also extract page HTML
-        chunkSize: 100000,       // Initial chunk size (~100KB)
+        extractHTML: true,
+        chunkSize: 100000,
         uiSettings: {
-            width: '320px',
+            width: '280px',
             height: 'auto',
             maxHeight: '400px',
-            position: 'bottom-right', // 'top-left', 'top-right', 'bottom-left', 'bottom-right'
+            position: 'bottom-right',
             colors: {
                 background: '#10a37f',
                 text: 'white',
@@ -38,7 +38,16 @@
                 secondaryBtn: '#3a3a3a',
                 secondaryBtnHover: '#555555',
                 inputBg: '#f0f0f0',
-                responseBg: '#f9f9f9'
+                responseBg: '#f9f9f9',
+                border: '#ddd'
+            },
+            fonts: {
+                main: "'Segoe UI', -apple-system, system-ui, BlinkMacSystemFont, Arial, sans-serif",
+                size: {
+                    small: '12px',
+                    normal: '13px',
+                    title: '14px'
+                }
             }
         }
     };
@@ -51,7 +60,6 @@
         isProcessing: false,
         currentRequestId: null,
         isMinimized: false,
-        isPromptExpanded: false,
         lastResponse: null
     };
 
@@ -60,12 +68,9 @@
         container: null,
         statusBar: null,
         contentArea: null,
-        buttonContainer: null,
+        promptInput: null,
         analyzeButton: null,
         chatgptButton: null,
-        promptToggleBtn: null,
-        promptContainer: null,
-        promptInput: null,
         responseArea: null,
         minimizeButton: null
     };
@@ -86,7 +91,7 @@
                 if (response.status === 200) {
                     STATE.isServerAvailable = true;
                     STATE.connectionRetries = 0;
-                    updateStatusText('Web Assistant ready');
+                    updateStatusText('Ready');
                 } else {
                     handleConnectionError();
                 }
@@ -99,11 +104,11 @@
     function handleConnectionError() {
         STATE.connectionRetries++;
         if (STATE.connectionRetries <= STATE.maxRetries) {
-            updateStatusText(`Connecting to server (attempt ${STATE.connectionRetries}/${STATE.maxRetries})...`, true);
+            updateStatusText(`Connecting (${STATE.connectionRetries}/${STATE.maxRetries})...`, true);
             setTimeout(checkServerConnection, 3000);
         } else {
             STATE.isServerAvailable = false;
-            updateStatusText('Failed to connect to AI assistant server', true);
+            updateStatusText('Connection failed', true);
         }
     }
 
@@ -117,9 +122,9 @@
             zIndex: '10000',
             width: CONFIG.uiSettings.width,
             maxHeight: CONFIG.uiSettings.maxHeight,
-            fontFamily: 'Arial, sans-serif',
-            fontSize: '14px',
-            boxShadow: '0 2px 20px rgba(0,0,0,0.2)',
+            fontFamily: CONFIG.uiSettings.fonts.main,
+            fontSize: CONFIG.uiSettings.fonts.size.normal,
+            boxShadow: '0 2px 10px rgba(0,0,0,0.15)',
             borderRadius: '8px',
             display: 'flex',
             flexDirection: 'column',
@@ -134,14 +139,16 @@
         const statusBar = document.createElement('div');
         statusBar.id = 'web-assistant-status';
         Object.assign(statusBar.style, {
-            padding: '10px 15px',
+            padding: '8px 12px',
             background: CONFIG.uiSettings.colors.background,
             color: CONFIG.uiSettings.colors.text,
             fontWeight: 'bold',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            cursor: 'move'
+            cursor: 'move',
+            fontSize: CONFIG.uiSettings.fonts.size.title,
+            borderBottom: '1px solid rgba(255,255,255,0.1)'
         });
 
         // Create minimize button
@@ -162,7 +169,7 @@
         // Add status text and button to status bar
         const statusText = document.createElement('span');
         statusText.id = 'web-assistant-status-text';
-        statusText.textContent = 'Starting Web Assistant...';
+        statusText.textContent = 'Web Assistant';
         statusBar.appendChild(statusText);
         statusBar.appendChild(minimizeButton);
 
@@ -170,53 +177,72 @@
         const contentArea = document.createElement('div');
         contentArea.id = 'web-assistant-content';
         Object.assign(contentArea.style, {
-            padding: '15px',
+            padding: '10px',
             background: 'white',
             display: 'flex',
             flexDirection: 'column',
-            gap: '10px'
+            gap: '8px'
         });
 
-        // Create button container
+        // Create prompt input - ALWAYS VISIBLE
+        const promptInput = document.createElement('textarea');
+        promptInput.id = 'web-assistant-prompt';
+        promptInput.placeholder = 'Ask anything about this page...';
+        promptInput.rows = 2;
+        Object.assign(promptInput.style, {
+            padding: '8px 10px',
+            borderRadius: '6px',
+            border: `1px solid ${CONFIG.uiSettings.colors.border}`,
+            width: '100%',
+            boxSizing: 'border-box',
+            resize: 'vertical',
+            fontFamily: 'inherit',
+            fontSize: CONFIG.uiSettings.fonts.size.normal,
+            background: CONFIG.uiSettings.colors.inputBg
+        });
+
+        // Create button container with a more compact layout
         const buttonContainer = document.createElement('div');
         buttonContainer.id = 'web-assistant-buttons';
         Object.assign(buttonContainer.style, {
             display: 'flex',
-            gap: '10px',
+            gap: '6px',
             justifyContent: 'space-between',
             alignItems: 'center'
         });
 
-        // Create analyze button
+        // Create analyze button with compact styling
         const analyzeButton = document.createElement('button');
         analyzeButton.id = 'web-assistant-analyze';
-        analyzeButton.textContent = 'Analyze Page';
+        analyzeButton.textContent = 'Analyze';
         Object.assign(analyzeButton.style, {
-            padding: '8px 12px',
-            borderRadius: '6px',
+            padding: '6px 10px',
+            borderRadius: '4px',
             border: 'none',
             background: CONFIG.uiSettings.colors.button,
             color: 'white',
             fontWeight: 'bold',
             cursor: 'pointer',
             flex: '1',
-            transition: 'background 0.2s'
+            transition: 'background 0.2s',
+            fontSize: CONFIG.uiSettings.fonts.size.small
         });
 
-        // Create ChatGPT button
+        // Create ChatGPT button with compact styling
         const chatgptButton = document.createElement('button');
         chatgptButton.id = 'web-assistant-chatgpt';
-        chatgptButton.textContent = 'See in ChatGPT';
+        chatgptButton.textContent = 'Open in ChatGPT';
         Object.assign(chatgptButton.style, {
-            padding: '8px 12px',
-            borderRadius: '6px',
+            padding: '6px 10px',
+            borderRadius: '4px',
             border: 'none',
             background: CONFIG.uiSettings.colors.secondaryBtn,
             color: 'white',
             fontWeight: 'bold',
             cursor: 'pointer',
-            flex: '1',
-            transition: 'background 0.2s'
+            flex: '1.2',
+            transition: 'background 0.2s',
+            fontSize: CONFIG.uiSettings.fonts.size.small
         });
 
         // Add hover effects to buttons
@@ -234,72 +260,28 @@
             chatgptButton.style.background = CONFIG.uiSettings.colors.secondaryBtn;
         });
 
-        // Create prompt toggle button
-        const promptToggleBtn = document.createElement('button');
-        promptToggleBtn.id = 'web-assistant-prompt-toggle';
-        promptToggleBtn.innerHTML = '➕ Add prompt';
-        promptToggleBtn.title = 'Add a custom prompt';
-        Object.assign(promptToggleBtn.style, {
-            background: 'transparent',
-            border: 'none',
-            color: '#555',
-            fontSize: '13px',
-            cursor: 'pointer',
-            padding: '5px 0',
-            marginTop: '5px',
-            textAlign: 'left'
-        });
-
-        // Create prompt container (initially hidden)
-        const promptContainer = document.createElement('div');
-        promptContainer.id = 'web-assistant-prompt-container';
-        Object.assign(promptContainer.style, {
-            marginTop: '10px',
-            display: 'none'
-        });
-
-        // Create prompt input
-        const promptInput = document.createElement('textarea');
-        promptInput.id = 'web-assistant-prompt';
-        promptInput.placeholder = 'Enter your question about this page (optional)...';
-        promptInput.rows = 2;
-        Object.assign(promptInput.style, {
-            padding: '10px',
-            borderRadius: '6px',
-            border: '1px solid #ddd',
-            width: '100%',
-            boxSizing: 'border-box',
-            resize: 'vertical',
-            fontFamily: 'inherit',
-            fontSize: '14px',
-            background: CONFIG.uiSettings.colors.inputBg
-        });
-
         // Create response area (initially empty)
         const responseArea = document.createElement('div');
         responseArea.id = 'web-assistant-response';
         Object.assign(responseArea.style, {
-            padding: '10px',
+            padding: '8px 10px',
             borderRadius: '6px',
             background: CONFIG.uiSettings.colors.responseBg,
-            border: '1px solid #ddd',
-            marginTop: '5px',
-            maxHeight: '200px',
+            border: `1px solid ${CONFIG.uiSettings.colors.border}`,
+            maxHeight: '150px',
             overflowY: 'auto',
-            display: 'none'
+            display: 'none',
+            fontSize: CONFIG.uiSettings.fonts.size.normal,
+            lineHeight: '1.4'
         });
 
         // Add buttons to button container
         buttonContainer.appendChild(analyzeButton);
         buttonContainer.appendChild(chatgptButton);
 
-        // Add prompt input to prompt container
-        promptContainer.appendChild(promptInput);
-
-        // Add elements to content area
+        // Add elements to content area (prompt first, then buttons, then response)
+        contentArea.appendChild(promptInput);
         contentArea.appendChild(buttonContainer);
-        contentArea.appendChild(promptToggleBtn);
-        contentArea.appendChild(promptContainer);
         contentArea.appendChild(responseArea);
 
         // Add everything to the container
@@ -311,12 +293,9 @@
         uiElements.container = container;
         uiElements.statusBar = statusBar;
         uiElements.contentArea = contentArea;
-        uiElements.buttonContainer = buttonContainer;
+        uiElements.promptInput = promptInput;
         uiElements.analyzeButton = analyzeButton;
         uiElements.chatgptButton = chatgptButton;
-        uiElements.promptToggleBtn = promptToggleBtn;
-        uiElements.promptContainer = promptContainer;
-        uiElements.promptInput = promptInput;
         uiElements.responseArea = responseArea;
         uiElements.minimizeButton = minimizeButton;
 
@@ -324,25 +303,9 @@
         analyzeButton.addEventListener('click', () => handleAnalyzeClick(false));
         chatgptButton.addEventListener('click', () => handleAnalyzeClick(true));
         minimizeButton.addEventListener('click', toggleMinimize);
-        promptToggleBtn.addEventListener('click', togglePromptInput);
 
         // Make the status bar draggable
         makeDraggable(container, statusBar);
-    }
-
-    // Toggle prompt input visibility
-    function togglePromptInput() {
-        STATE.isPromptExpanded = !STATE.isPromptExpanded;
-
-        if (STATE.isPromptExpanded) {
-            uiElements.promptContainer.style.display = 'block';
-            uiElements.promptToggleBtn.innerHTML = '➖ Hide prompt';
-            // Focus the prompt input
-            setTimeout(() => uiElements.promptInput.focus(), 0);
-        } else {
-            uiElements.promptContainer.style.display = 'none';
-            uiElements.promptToggleBtn.innerHTML = '➕ Add prompt';
-        }
     }
 
     // Toggle minimize/maximize state
@@ -450,8 +413,8 @@
             return;
         }
 
-        // Get prompt if provided (optional)
-        const prompt = STATE.isPromptExpanded ? uiElements.promptInput.value.trim() : '';
+        // Get prompt (now always visible)
+        const prompt = uiElements.promptInput.value.trim();
 
         // Extract and analyze content
         analyzePageContent(prompt, viewInChatGPT);
@@ -613,11 +576,15 @@
     function analyzePageContent(prompt, viewInChatGPT) {
         // Update state and UI
         STATE.isProcessing = true;
-        updateStatusText('Extracting page content...');
+        updateStatusText('Extracting content...');
         uiElements.analyzeButton.disabled = true;
         uiElements.chatgptButton.disabled = true;
-        uiElements.analyzeButton.textContent = 'Processing...';
-        uiElements.chatgptButton.textContent = 'Processing...';
+
+        // Add processing indicators
+        const originalAnalyzeText = uiElements.analyzeButton.textContent;
+        const originalChatGPTText = uiElements.chatgptButton.textContent;
+        uiElements.analyzeButton.textContent = '⏳';
+        uiElements.chatgptButton.textContent = '⏳';
 
         try {
             // Extract content
@@ -629,22 +596,26 @@
             STATE.currentRequestId = requestId;
 
             // Update status
-            updateStatusText(`Analyzing page content (${chunks.length} chunks)...`);
+            const chunkText = chunks.length > 1 ? ` (${chunks.length} chunks)` : '';
+            updateStatusText(`Analyzing${chunkText}...`);
 
             // Send first chunk to start the process
             sendContentChunk(requestId, prompt, chunks, 0, viewInChatGPT);
 
         } catch (error) {
             console.error('Error extracting content:', error);
-            updateStatusText('Error extracting content', true);
-            showResponse(`Error extracting content: ${error.message}`, true);
+            updateStatusText('Extraction error', true);
+            showResponse(`Error: ${error.message}`, true);
             STATE.isProcessing = false;
-            resetUI();
+            resetUI(originalAnalyzeText, originalChatGPTText);
         }
     }
 
     // Send a content chunk to the server
     function sendContentChunk(requestId, prompt, chunks, chunkIndex, viewInChatGPT) {
+        const originalAnalyzeText = 'Analyze';
+        const originalChatGPTText = 'Open in ChatGPT';
+
         if (chunkIndex >= chunks.length) {
             // All chunks sent
             if (!viewInChatGPT) {
@@ -655,7 +626,7 @@
                 updateStatusText('Opened in ChatGPT');
                 showResponse('Content is being processed in ChatGPT. Please check the new browser tab.');
                 STATE.isProcessing = false;
-                resetUI();
+                resetUI(originalAnalyzeText, originalChatGPTText);
             }
             return;
         }
@@ -674,7 +645,11 @@
         };
 
         // Update status
-        updateStatusText(`Sending chunk ${chunkIndex + 1}/${chunks.length}...`);
+        if (chunks.length > 1) {
+            updateStatusText(`Sending ${chunkIndex + 1}/${chunks.length}...`);
+        } else {
+            updateStatusText('Processing...');
+        }
 
         // Send to server
         GM_xmlhttpRequest({
@@ -693,17 +668,17 @@
                         sendContentChunk(requestId, prompt, chunks, chunkIndex + 1, viewInChatGPT);
                     } else {
                         console.error('Error sending chunk:', result.error);
-                        updateStatusText('Error sending content', true);
-                        showResponse(`Error sending chunk ${chunkIndex + 1}: ${result.error}`, true);
+                        updateStatusText('Server error', true);
+                        showResponse(`Error: ${result.error}`, true);
                         STATE.isProcessing = false;
-                        resetUI();
+                        resetUI(originalAnalyzeText, originalChatGPTText);
                     }
                 } catch (e) {
                     console.error('Error parsing response:', e);
-                    updateStatusText('Error processing response', true);
+                    updateStatusText('Response error', true);
                     showResponse('Server returned an invalid response', true);
                     STATE.isProcessing = false;
-                    resetUI();
+                    resetUI(originalAnalyzeText, originalChatGPTText);
                 }
             },
             onerror: (error) => {
@@ -711,14 +686,17 @@
                 updateStatusText('Connection error', true);
                 showResponse('Failed to connect to the server', true);
                 STATE.isProcessing = false;
-                resetUI();
+                resetUI(originalAnalyzeText, originalChatGPTText);
             }
         });
     }
 
     // Poll for results from the server
     function pollForResults(requestId) {
-        updateStatusText('Waiting for ChatGPT analysis...');
+        const originalAnalyzeText = 'Analyze';
+        const originalChatGPTText = 'Open in ChatGPT';
+
+        updateStatusText('Waiting for ChatGPT...');
         showResponse('ChatGPT is analyzing the page content...');
 
         // Start polling with exponential backoff
@@ -735,7 +713,7 @@
                 updateStatusText('Analysis timed out', true);
                 showResponse('The analysis request timed out. Please try again.', true);
                 STATE.isProcessing = false;
-                resetUI();
+                resetUI(originalAnalyzeText, originalChatGPTText);
                 return;
             }
 
@@ -747,7 +725,10 @@
                     try {
                         if (response.status === 404) {
                             // No results yet, continue polling
-                            updateStatusText(`Waiting for analysis... (${pollCount * 2}s)`);
+                            const waitTime = pollCount * 2;
+                            if (waitTime % 10 === 0) { // Update status every 10 seconds
+                                updateStatusText(`Waiting (${waitTime}s)...`);
+                            }
                             return;
                         }
 
@@ -757,10 +738,10 @@
                             if (result.success && result.response) {
                                 // Process is complete
                                 clearInterval(pollInterval);
-                                updateStatusText('Analysis complete');
+                                updateStatusText('Complete ✓');
                                 showResponse(result.response);
                                 STATE.isProcessing = false;
-                                resetUI();
+                                resetUI(originalAnalyzeText, originalChatGPTText);
                             }
                         } else {
                             // Server error
@@ -779,11 +760,11 @@
     }
 
     // Reset UI after processing
-    function resetUI() {
+    function resetUI(analyzeText, chatgptText) {
         uiElements.analyzeButton.disabled = false;
         uiElements.chatgptButton.disabled = false;
-        uiElements.analyzeButton.textContent = 'Analyze Page';
-        uiElements.chatgptButton.textContent = 'See in ChatGPT';
+        uiElements.analyzeButton.textContent = analyzeText || 'Analyze';
+        uiElements.chatgptButton.textContent = chatgptText || 'Open in ChatGPT';
     }
 
     // Wait for DOM to be fully loaded
